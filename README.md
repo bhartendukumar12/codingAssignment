@@ -1,6 +1,6 @@
 # Nest Orders Service
 
-A backend service built with [NestJS](https://nestjs.com/) for managing orders in an e-commerce or order processing system.  
+A backend service built with [NestJS](https://nestjs.com/) for managing orders in an order processing system.  
 It uses PostgreSQL as the database and TypeORM as the ORM, with validation, Swagger API docs, and TypeScript.
 
 ---
@@ -23,13 +23,13 @@ It uses PostgreSQL as the database and TypeORM as the ORM, with validation, Swag
 ### 1. Prerequisites
 
 - Node.js (v18+ recommended)
-- npm or yarn
+- npm
 - PostgreSQL running locally or accessible via network
 
 ### 2. Clone and Install
 
 ```bash
-git clone <your-repo-url> nest-orders
+git clone <https://github.com/bhartendukumar12/codingAssignment> nest-orders
 cd nest-orders
 npm install
-# or: yarn
+npm run start:dev
