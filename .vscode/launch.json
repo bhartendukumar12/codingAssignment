@@ -1,0 +1,20 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+  
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "NestJS Debug (ts-node-dev)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start:debug"],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "restart": true,
+      "protocol": "inspector",
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    }
+  ]
+}
