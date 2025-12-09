@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, DefaultValuePipe, ParseIntPipe } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrderStatus } from './enums/order-status.enum';
@@ -26,13 +26,22 @@ export class OrdersController {
         return await this.svc.findById(id);
     }
 
-    @Get()
-    @ApiOperation({ summary: 'List orders (optional status filter)' })
-    @ApiQuery({ name: 'status', required: false, enum: OrderStatus })
-    async list(@Query('status') status?: string) {
-        const parsed = status ? (OrderStatus as any)[status as keyof typeof OrderStatus] : undefined;
-        return await this.svc.findAll(parsed);
-    }
+@Get()
+@ApiOperation({ summary: 'List orders (optional status filter, paginated)' })
+@ApiQuery({ name: 'status', required: false, enum: OrderStatus })
+@ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+@ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
+async list(
+  @Query('status') status?: string,
+  @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
+  @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit = 10,
+) {
+  const parsedStatus = status
+    ? (OrderStatus as any)[status as keyof typeof OrderStatus]
+    : undefined;
+
+  return this.svc.findAll(parsedStatus, page, limit);
+}
 
     @Patch(':id/status')
     @ApiOperation({ summary: 'Update order status' })

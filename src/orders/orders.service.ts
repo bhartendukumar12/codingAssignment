@@ -96,15 +96,42 @@ export class OrdersService {
       .getOne();
   }
 
-  async findAll(status?: OrderStatus): Promise<OrderEntity[]> {
+  async findAll(
+    status?: OrderStatus,
+    page = 1,
+    limit = 10
+  ): Promise<{
+    data: OrderEntity[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
+    // basic safety
+    const safePage = page < 1 ? 1 : page;
+    const safeLimit = Math.min(Math.max(limit, 1), 100); // 1–100
+
     const qb = this.orderRepo
       .createQueryBuilder("order")
-      .leftJoinAndSelect("order.items", "item");
+      .leftJoinAndSelect("order.items", "item")
+      .orderBy("order.createdAt", "DESC");
 
     if (status) {
       qb.where("order.status = :status", { status });
     }
-    return qb.getMany();
+
+    const [data, total] = await qb
+      .skip((safePage - 1) * safeLimit)
+      .take(safeLimit)
+      .getManyAndCount();
+
+    return {
+      data,
+      total,
+      page: safePage,
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit) || 1,
+    };
   }
 
   async updateStatus(
