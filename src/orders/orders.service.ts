@@ -1,7 +1,7 @@
 import {
   Injectable,
   BadRequestException,
-  NotFoundException,
+  InternalServerErrorException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, Repository } from "typeorm";
@@ -12,6 +12,7 @@ import { OrderStatus } from "./enums/order-status.enum";
 import { CreateOrderDto } from "./dto/create-order.dto";
 import { computeTotal, nowIso } from "../common/utils";
 import { Interval } from "@nestjs/schedule";
+import { LoggerHelper } from "../common/logger";
 
 @Injectable()
 export class OrdersService {
@@ -25,6 +26,7 @@ export class OrdersService {
 
   async create(dto: CreateOrderDto): Promise<OrderEntity> {
     const queryRunner = this.dataSource.createQueryRunner();
+
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -39,32 +41,35 @@ export class OrdersService {
       }
 
       dto.items.forEach((it, idx) => {
-        if (!it.productId)
+        if (!it.productId) {
           throw new BadRequestException(`items[${idx}].productId required`);
-        if (!it.quantity || Number(it.quantity) <= 0)
+        }
+        if (!it.quantity || Number(it.quantity) <= 0) {
           throw new BadRequestException(`items[${idx}].quantity must be > 0`);
-        if (it.price == null || isNaN(Number(it.price)))
+        }
+        if (it.price == null || isNaN(Number(it.price))) {
           throw new BadRequestException(`items[${idx}].price must be numeric`);
+        }
       });
 
-      // Create the order (without items)
+      // Create order
       const order = new OrderEntity();
       order.customerName = dto.customer.name;
       order.customerEmail = dto.customer.email;
+      order.createdBy = dto.customer.email;
       order.status = OrderStatus.PENDING;
 
-      // compute total from items below
       const tempItems = dto.items.map((it) => ({
         quantity: it.quantity,
         price: Number(it.price),
       }));
+
       const totalNum = computeTotal(tempItems as any);
       order.total = totalNum.toFixed(2);
 
-      // Save order first
       const savedOrder = await orderRepo.save(order);
 
-      // Create and save items separately, assigning the order
+      // Create items
       const items = dto.items.map((it) => {
         const item = new OrderItemEntity();
         item.productId = it.productId;
@@ -79,21 +84,50 @@ export class OrdersService {
 
       await queryRunner.commitTransaction();
 
+      LoggerHelper.log(
+        `Order created successfully (orderId=${savedOrder.id}, items=${items.length})`,
+        "OrderService.create"
+      );
+
       return this.findById(savedOrder.id);
-    } catch (err) {
+    } catch (error) {
       await queryRunner.rollbackTransaction();
-      throw err;
+
+      if (error instanceof BadRequestException) {
+        LoggerHelper.warn(error.message, "OrderService.create");
+        throw error;
+      }
+
+      LoggerHelper.error(
+        "Failed to create order",
+        error,
+        "OrderService.create"
+      );
+
+      throw new InternalServerErrorException("Unable to create order");
     } finally {
       await queryRunner.release();
     }
   }
 
   async findById(orderId: string): Promise<OrderEntity | null> {
-    return await this.orderRepo
-      .createQueryBuilder("order")
-      .leftJoinAndSelect("order.items", "item")
-      .where("order.id = :id", { id: orderId })
-      .getOne();
+    try {
+      const order = await this.orderRepo
+        .createQueryBuilder("order")
+        .leftJoinAndSelect("order.items", "item")
+        .where("order.id = :id", { id: orderId })
+        .getOne();
+      LoggerHelper.log(`findById success. `, "OrderService.findById");
+      return order;
+    } catch (error) {
+      LoggerHelper.error(
+        `Failed to fetch order by id: ${orderId}`,
+        error,
+        "OrderService.findById"
+      );
+
+      throw new InternalServerErrorException("Unable to fetch order details");
+    }
   }
 
   async findAll(
@@ -107,74 +141,174 @@ export class OrdersService {
     limit: number;
     totalPages: number;
   }> {
-    // basic safety
-    const safePage = page < 1 ? 1 : page;
-    const safeLimit = Math.min(Math.max(limit, 1), 100); // 1–100
+    try {
+      const safePage = page < 1 ? 1 : page;
+      const safeLimit = Math.min(Math.max(limit, 1), 100); // 1–100
 
-    const qb = this.orderRepo
-      .createQueryBuilder("order")
-      .leftJoinAndSelect("order.items", "item")
-      .orderBy("order.createdAt", "DESC");
+      const qb = this.orderRepo
+        .createQueryBuilder("order")
+        .leftJoinAndSelect("order.items", "item")
+        .orderBy("order.createdAt", "DESC");
 
-    if (status) {
-      qb.where("order.status = :status", { status });
+      if (status) {
+        qb.where("order.status = :status", { status });
+      }
+
+      const [data, total] = await qb
+        .skip((safePage - 1) * safeLimit)
+        .take(safeLimit)
+        .getManyAndCount();
+
+      LoggerHelper.log(
+        `findAll success. Returned ${data.length} records out of total ${total}`,
+        "OrderService.findAll"
+      );
+
+      return {
+        data,
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit) || 1,
+      };
+    } catch (error) {
+      LoggerHelper.error(
+        `Failed to fetch orders (status=${status}, page=${page}, limit=${limit})`,
+        error,
+        "OrderService.findAll"
+      );
+
+      throw new InternalServerErrorException("Unable to fetch order list");
     }
-
-    const [data, total] = await qb
-      .skip((safePage - 1) * safeLimit)
-      .take(safeLimit)
-      .getManyAndCount();
-
-    return {
-      data,
-      total,
-      page: safePage,
-      limit: safeLimit,
-      totalPages: Math.ceil(total / safeLimit) || 1,
-    };
   }
 
   async updateStatus(
     id: string,
-    nextStatus: OrderStatus
+    nextStatus: OrderStatus,
+    updatedBy: string
   ): Promise<OrderEntity> {
-    const order = await this.findById(id);
-    if (!Object.values(OrderStatus).includes(nextStatus))
-      throw new BadRequestException("Invalid status");
-    if ([OrderStatus.CANCELLED, OrderStatus.DELIVERED].includes(order.status)) {
-      throw new BadRequestException(
-        `Cannot change status from ${order.status}`
+    try {
+      const order = await this.findById(id);
+
+      if (!order) {
+        throw new BadRequestException(`Order ${id} not found`);
+      }
+
+      if (!Object.values(OrderStatus).includes(nextStatus)) {
+        throw new BadRequestException("Invalid status");
+      }
+
+      if (
+        [OrderStatus.CANCELLED, OrderStatus.DELIVERED].includes(order.status)
+      ) {
+        throw new BadRequestException(
+          `Cannot change status from ${order.status}`
+        );
+      }
+
+      order.status = nextStatus;
+      order.updatedBy = updatedBy;
+      order.updatedAt = new Date();
+
+      const savedOrder = await this.orderRepo.save(order);
+
+      LoggerHelper.log(
+        `Order ${id} status updated to ${nextStatus} by ${updatedBy}`,
+        "OrderService.updateStatus"
       );
+
+      return savedOrder;
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        LoggerHelper.warn(error.message, "OrderService.updateStatus");
+        throw error;
+      }
+
+      LoggerHelper.error(
+        `Failed to update order status (id=${id}, nextStatus=${nextStatus}, updatedBy=${updatedBy})`,
+        error,
+        "OrderService.updateStatus"
+      );
+
+      throw new InternalServerErrorException("Unable to update order status");
     }
-    order.status = nextStatus;
-    order.updatedAt = new Date();
-    return this.orderRepo.save(order);
   }
 
   async cancel(id: string): Promise<OrderEntity> {
-    const order = await this.findById(id);
-    if (order.status !== OrderStatus.PENDING) {
-      throw new BadRequestException("Only PENDING orders can be cancelled");
+    try {
+      const order = await this.findById(id);
+
+      if (!order) {
+        throw new BadRequestException(`Order ${id} not found`);
+      }
+
+      if (order.status !== OrderStatus.PENDING) {
+        throw new BadRequestException("Only PENDING orders can be cancelled");
+      }
+
+      order.status = OrderStatus.CANCELLED;
+      order.updatedAt = new Date();
+
+      const savedOrder = await this.orderRepo.save(order);
+
+      LoggerHelper.log(
+        `Order ${id} cancelled successfully`,
+        "OrderService.cancel"
+      );
+
+      return savedOrder;
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        LoggerHelper.warn(error.message, "OrderService.cancel");
+        throw error;
+      }
+
+      LoggerHelper.error(
+        `Failed to cancel order (id=${id})`,
+        error,
+        "OrderService.cancel"
+      );
+
+      throw new InternalServerErrorException("Unable to cancel order");
     }
-    order.status = OrderStatus.CANCELLED;
-    order.updatedAt = new Date();
-    return this.orderRepo.save(order);
   }
 
-  // promotion using Interval
-  @Interval(Number(process.env.JOB_INTERVAL_MS || 100000))
-  async promotePending() {
-    console.log("running promotePending---->");
-    const pending = await this.orderRepo.find({
-      where: { status: OrderStatus.PENDING },
-    });
-    if (!pending.length) return;
-    const now = new Date();
-    for (const o of pending) {
-      o.status = OrderStatus.PROCESSING;
-      o.updatedAt = now;
+  @Interval(Number(process.env.JOB_INTERVAL_MS || 500_000))
+  async promotePending(): Promise<void> {
+    try {
+      LoggerHelper.log(
+        "promotePending job started",
+        "OrderJobs.promotePending"
+      );
+
+      const pending = await this.orderRepo.find({
+        where: { status: OrderStatus.PENDING },
+      });
+
+      if (!pending.length) {
+        LoggerHelper.log("No pending orders found", "OrderJobs.promotePending");
+        return;
+      }
+
+      const now = new Date();
+
+      for (const order of pending) {
+        order.status = OrderStatus.PROCESSING;
+        order.updatedAt = now;
+      }
+
+      await this.orderRepo.save(pending);
+
+      LoggerHelper.log(
+        `Promoted ${pending.length} orders to PROCESSING`,
+        "OrderJobs.promotePending"
+      );
+    } catch (error) {
+      LoggerHelper.error(
+        "Failed during promotePending job",
+        error,
+        "OrderJobs.promotePending"
+      );
     }
-    await this.orderRepo.save(pending);
-    console.log(`promoted ${pending.length} orders`);
   }
 }

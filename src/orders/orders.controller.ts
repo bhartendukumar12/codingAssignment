@@ -51,7 +51,7 @@ async list(
         if (!body || !body.status) {
             throw new Error('status required in body');
         }
-        return await this.svc.updateStatus(id, body.status);
+        return await this.svc.updateStatus(id, body.status, body.updatedBy);
     }
 
     @Post(':id/cancel')

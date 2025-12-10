@@ -3,12 +3,13 @@ import {
   PrimaryGeneratedColumn,
   Column,
   ManyToOne,
+  JoinColumn
 } from 'typeorm';
 import { OrderEntity } from './order.entity';
 
 @Entity({ name: 'order_items' })
 export class OrderItemEntity {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn()
   id: string;
 
   @Column()
@@ -24,5 +25,6 @@ export class OrderItemEntity {
   price: string;
 
   @ManyToOne(() => OrderEntity, (order) => order.items)
+  @JoinColumn({ name: 'orderId' })
   order: OrderEntity;
 }

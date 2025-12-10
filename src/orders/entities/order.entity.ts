@@ -11,7 +11,7 @@ import { OrderItemEntity } from './order-item.entity';
 
 @Entity({ name: 'orders' })
 export class OrderEntity {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn()
   id: string;
 
   @Column()
@@ -28,6 +28,12 @@ export class OrderEntity {
 
   @OneToMany(() => OrderItemEntity, (item) => item.order)
   items: OrderItemEntity[];
+
+ @Column()
+  createdBy: string;
+
+@Column({ nullable: true })
+  updatedBy: string;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;

@@ -15,7 +15,9 @@ import * as dotenv from 'dotenv';
 
 async function bootstrap() {
     dotenv.config();
-    const app = await NestFactory.create(AppModule);
+    const app = await NestFactory.create(AppModule, {
+  logger: ['error', 'warn', 'log', 'debug', 'verbose'],
+});;
 
     // validation pipe
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));
