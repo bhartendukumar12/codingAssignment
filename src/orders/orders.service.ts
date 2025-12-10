@@ -4,6 +4,8 @@ import {
   InternalServerErrorException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
+import { InjectMapper } from "@automapper/nestjs";
+import { Mapper } from "@automapper/core";
 import { DataSource, Repository } from "typeorm";
 import { OrderEntity } from "./entities/order.entity";
 import { OrderItemEntity } from "./entities/order-item.entity";
@@ -12,18 +14,25 @@ import { CreateOrderDto } from "./dto/create-order.dto";
 import { computeTotal } from "../common/utils";
 import { Interval } from "@nestjs/schedule";
 import { LoggerHelper } from "../common/logger";
+import { OrderDto } from "./dto/response-order.dto";
 
 @Injectable()
 export class OrdersService {
   constructor(
     @InjectRepository(OrderEntity)
     private readonly orderRepo: Repository<OrderEntity>,
-    @InjectRepository(OrderItemEntity)
-    private readonly orderItemRepo: Repository<OrderItemEntity>,
-    private readonly dataSource: DataSource
+    private readonly dataSource: DataSource,
+    @InjectMapper()
+    private readonly mapper: Mapper
   ) {}
 
-  async create(dto: CreateOrderDto): Promise<OrderEntity> {
+  /**
+   * Create a new order.
+   *
+   * @param {CreateOrderDto} dto - order details.
+   * @returns {Promise<CreateOrderDto>} The saved order details.
+   */
+  async create(dto: CreateOrderDto): Promise<OrderDto> {
     const queryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
@@ -52,7 +61,7 @@ export class OrdersService {
       });
 
       // Create order
-      const order = new OrderEntity();
+      const order = new OrderDto();
       order.customerName = dto.customer.name;
       order.customerEmail = dto.customer.email;
       order.createdBy = dto.customer.email;
@@ -109,7 +118,13 @@ export class OrdersService {
     }
   }
 
-  async findById(orderId: string): Promise<OrderEntity | null> {
+  /**
+   * Get order by Id.
+   *
+   * @param {string} orderId - order id to be fetched.
+   * @returns {Promise<OrderDto>} The order details.
+   */
+  async findById(orderId: string): Promise<OrderDto | null> {
     try {
       const order = await this.orderRepo
         .createQueryBuilder("order")
@@ -117,7 +132,8 @@ export class OrdersService {
         .where("order.id = :id", { id: orderId })
         .getOne();
       LoggerHelper.log(`findById success. `, "OrderService.findById");
-      return order;
+      if (!order) return null;
+      return this.mapper.map(order, OrderEntity, OrderDto);
     } catch (error) {
       LoggerHelper.error(
         `Failed to fetch order by id: ${orderId}`,
@@ -129,12 +145,18 @@ export class OrdersService {
     }
   }
 
+  /**
+   * List all order
+   *
+   * @param {string} status - order status.
+   * @returns {Promise<OrderDto[]>} The order details.
+   */
   async findAll(
     status?: OrderStatus,
     page = 1,
     limit = 10
   ): Promise<{
-    data: OrderEntity[];
+    data: OrderDto[];
     total: number;
     page: number;
     limit: number;
@@ -181,11 +203,19 @@ export class OrdersService {
     }
   }
 
+  /**
+   * Update order status
+   *
+   * @param {string} id - order id.
+   * @param {string} nextStatus - order updated status.
+   * @param {string} updatedBy - order updated by.
+   * @returns {Promise<OrderDto>} The updated order details.
+   */
   async updateStatus(
     id: string,
     nextStatus: OrderStatus,
     updatedBy: string
-  ): Promise<OrderEntity> {
+  ): Promise<OrderDto> {
     try {
       const order = await this.findById(id);
 
@@ -233,7 +263,13 @@ export class OrdersService {
     }
   }
 
-  async cancel(id: string): Promise<OrderEntity> {
+  /**
+   * Cancel order
+   *
+   * @param {string} id - order id.
+   * @returns {Promise<OrderDto>} The canceled order details.
+   */
+  async cancel(id: string): Promise<OrderDto> {
     try {
       const order = await this.findById(id);
 

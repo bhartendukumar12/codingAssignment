@@ -1,20 +1,24 @@
+import { Test, TestingModule } from "@nestjs/testing";
 import {
   BadRequestException,
-} from '@nestjs/common';
-import { DataSource } from 'typeorm';
-import { OrdersService } from './orders.service';
-import { OrderEntity } from './entities/order.entity';
-import { OrderItemEntity } from './entities/order-item.entity';
-import { OrderStatus } from './enums/order-status.enum';
-import { CreateOrderDto } from './dto/create-order.dto';
-import { computeTotal } from '../common/utils';
+  InternalServerErrorException,
+} from "@nestjs/common";
+import { getRepositoryToken } from "@nestjs/typeorm";
+import { getMapperToken } from "@automapper/nestjs";
+import { DataSource, QueryRunner, Repository } from "typeorm";
 
-// Mock external helpers
-jest.mock('../common/utils', () => ({
-  computeTotal: jest.fn(),
+import { OrdersService } from "./orders.service";
+import { OrderEntity } from "./entities/order.entity";
+import { OrderItemEntity } from "./entities/order-item.entity";
+import { OrderStatus } from "./enums/order-status.enum";
+import { CreateOrderDto } from "./dto/create-order.dto";
+import { OrderDto } from "./dto/response-order.dto";
+
+jest.mock("../common/utils", () => ({
+  computeTotal: jest.fn().mockReturnValue(75000),
 }));
 
-jest.mock('../common/logger', () => ({
+jest.mock("../common/logger", () => ({
   LoggerHelper: {
     log: jest.fn(),
     warn: jest.fn(),
@@ -22,142 +26,192 @@ jest.mock('../common/logger', () => ({
   },
 }));
 
-describe('OrdersService', () => {
+describe("OrdersService.create", () => {
   let service: OrdersService;
 
-  // Mocks
-  let orderRepoMock: any;
-  let orderItemRepoMock: any;
-  let dataSourceMock: any;
-  let queryRunnerMock: any;
+  let orderRepo: jest.Mocked<Repository<OrderEntity>>;
+  let dataSource: DataSource;
+  let queryRunner: QueryRunner;
+  let itemRepo: { save: jest.Mock };
 
-  beforeEach(() => {
-    orderRepoMock = {
-      createQueryBuilder: jest.fn(),
-      find: jest.fn(),
+  beforeEach(async () => {
+    orderRepo = {
+      save: jest.fn(),
+    } as any;
+
+    itemRepo = {
       save: jest.fn(),
     };
 
-    orderItemRepoMock = {
-      save: jest.fn(),
+    const manager: any = {
+      getRepository: jest.fn((entity: any) => {
+        if (entity === OrderEntity) return orderRepo;
+        if (entity === OrderItemEntity) return itemRepo;
+        return {};
+      }),
     };
 
-    queryRunnerMock = {
+    // QueryRunner mock
+    queryRunner = {
+      manager,
       connect: jest.fn(),
       startTransaction: jest.fn(),
       commitTransaction: jest.fn(),
       rollbackTransaction: jest.fn(),
       release: jest.fn(),
-      manager: {
-        getRepository: jest.fn(),
-      },
-    };
+    } as any;
 
-    dataSourceMock = {
-      createQueryRunner: jest.fn().mockReturnValue(queryRunnerMock),
-    } as unknown as DataSource;
+    // DataSource mock
+    dataSource = {
+      createQueryRunner: jest.fn().mockReturnValue(queryRunner),
+    } as any;
 
-    service = new OrdersService(
-      orderRepoMock,
-      orderItemRepoMock,
-      dataSourceMock,
-    );
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        OrdersService,
+        { provide: getRepositoryToken(OrderEntity), useValue: orderRepo },
+        { provide: DataSource, useValue: dataSource },
+        { provide: getMapperToken(), useValue: {} },
+      ],
+    }).compile();
+
+    service = module.get<OrdersService>(OrdersService);
   });
 
   afterEach(() => {
     jest.clearAllMocks();
   });
 
-  // test create
-  describe('create', () => {
-    it('should create order and items successfully', async () => {
-      const dto: CreateOrderDto = {
-        customer: {
-          name: 'Bharat',
-          email: 'bharat@gmail.com',
-        },
-        items: [
-          { productId: 'p1', name: 'Prod 1', quantity: 2, price: '10.50' },
-          { productId: 'p2', name: 'Prod 2', quantity: 1, price: '5.00' },
-        ],
-      } as any;
+  it("should create order and items successfully", async () => {
+    const dto: CreateOrderDto = {
+      customer: {
+        name: "Bharat",
+        email: "bharat@test.com",
+      },
+      items: [
+        { productId: "P1", name: "Laptop", quantity: 1, price: "75000" },
+      ],
+    } as any;
 
-      const orderRepoInTx = {
-        save: jest.fn().mockResolvedValue({ id: '1' }),
-      };
-      const itemRepoInTx = {
-        save: jest.fn().mockResolvedValue(undefined),
-      };
+    const savedOrder: Partial<OrderEntity> = {
+      id: "123",
+      customerName: dto.customer.name,
+      customerEmail: dto.customer.email,
+      status: OrderStatus.PENDING,
+      total: "75000.00",
+      createdBy: dto.customer.email,
+    };
 
-      queryRunnerMock.manager.getRepository.mockImplementation((entity) => {
-        if (entity === OrderEntity) return orderRepoInTx;
-        if (entity === OrderItemEntity) return itemRepoInTx;
-        return null;
-      });
+    orderRepo.save.mockResolvedValue(savedOrder as OrderEntity);
 
-      (computeTotal as jest.Mock).mockReturnValue(26.0);
+    const expectedDto: OrderDto = {
+      id: "123",
+      customerName: dto.customer.name,
+      customerEmail: dto.customer.email,
+      status: OrderStatus.PENDING,
+      total: "75000.00",
+      items: [],
+      createdBy: dto.customer.email,
+      updatedBy: null as any,
+      createdAt: undefined as any,
+      updatedAt: undefined as any,
+    };
+    const findByIdSpy = jest
+      .spyOn(service, "findById")
+      .mockResolvedValue(expectedDto);
 
-      const finalOrder = {
-        id: '1',
+    const result = await service.create(dto);
+
+    expect((dataSource as any).createQueryRunner).toHaveBeenCalled();
+    expect(queryRunner.connect as jest.Mock).toHaveBeenCalled();
+    expect(queryRunner.startTransaction as jest.Mock).toHaveBeenCalled();
+    expect(queryRunner.commitTransaction as jest.Mock).toHaveBeenCalled();
+    expect(queryRunner.release as jest.Mock).toHaveBeenCalled();
+
+    expect(orderRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerName: "Bharat",
+        customerEmail: "bharat@test.com",
+        createdBy: "bharat@test.com",
         status: OrderStatus.PENDING,
-      } as OrderEntity;
+        total: "75000.00",
+      })
+    );
 
-      const findByIdSpy = jest
-        .spyOn(service, 'findById')
-        .mockResolvedValue(finalOrder);
-
-      const result = await service.create(dto);
-
-      expect(dataSourceMock.createQueryRunner).toHaveBeenCalled();
-      expect(queryRunnerMock.connect).toHaveBeenCalled();
-      expect(queryRunnerMock.startTransaction).toHaveBeenCalled();
-
-      expect(orderRepoInTx.save).toHaveBeenCalledWith(
+    expect(itemRepo.save).toHaveBeenCalledWith(
+      expect.arrayContaining([
         expect.objectContaining({
-          customerName: 'Bharat',
-          customerEmail: 'bharat@gmail.com',
-          status: OrderStatus.PENDING,
-          total: '26.00',
+          productId: "P1",
+          name: "Laptop",
+          quantity: 1,
+          price: "75000.00",
+          order: savedOrder,
         }),
-      );
+      ])
+    );
 
-      expect(itemRepoInTx.save).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({
-            productId: 'p1',
-            quantity: 2,
-            price: '10.50',
-          }),
-          expect.objectContaining({
-            productId: 'p2',
-            quantity: 1,
-            price: '5.00',
-          }),
-        ]),
-      );
-
-      expect(queryRunnerMock.commitTransaction).toHaveBeenCalled();
-      expect(queryRunnerMock.release).toHaveBeenCalled();
-      expect(findByIdSpy).toHaveBeenCalledWith('1');
-      expect(result).toBe(finalOrder);
-    });
-
-    it('should throw BadRequestException when customer data is invalid', async () => {
-      const dto: CreateOrderDto = {
-        customer: {
-          name: '',
-          email: '',
-        },
-        items: [],
-      } as any;
-
-      await expect(service.create(dto)).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
-
-      expect(queryRunnerMock.rollbackTransaction).toHaveBeenCalled();
-      expect(queryRunnerMock.release).toHaveBeenCalled();
-    });
+    expect(findByIdSpy).toHaveBeenCalledWith("123");
+    expect(result).toEqual(expectedDto);
   });
 
+  it("should throw BadRequestException if customer name/email is missing", async () => {
+    const dto: CreateOrderDto = {
+      customer: {
+        name: "",
+        email: "",
+      },
+      items: [],
+    } as any;
+
+    await expect(service.create(dto)).rejects.toBeInstanceOf(
+      BadRequestException
+    );
+
+    expect(queryRunner.rollbackTransaction as jest.Mock).toHaveBeenCalled();
+    expect(queryRunner.release as jest.Mock).toHaveBeenCalled();
+    expect(orderRepo.save).not.toHaveBeenCalled();
+    expect(itemRepo.save).not.toHaveBeenCalled();
+  });
+
+  it("should throw BadRequestException if item validation fails", async () => {
+    const dto: CreateOrderDto = {
+      customer: {
+        name: "Bharat",
+        email: "bharat@test.com",
+      },
+      items: [
+        { productId: "", name: "Laptop", quantity: 0, price: "abc" },
+      ],
+    } as any;
+
+    await expect(service.create(dto)).rejects.toBeInstanceOf(
+      BadRequestException
+    );
+
+    expect(queryRunner.rollbackTransaction as jest.Mock).toHaveBeenCalled();
+    expect(queryRunner.release as jest.Mock).toHaveBeenCalled();
+    expect(orderRepo.save).not.toHaveBeenCalled();
+    expect(itemRepo.save).not.toHaveBeenCalled();
+  });
+
+  it("should rollback and throw InternalServerErrorException on unknown error", async () => {
+    const dto: CreateOrderDto = {
+      customer: {
+        name: "Bharat",
+        email: "bharat@test.com",
+      },
+      items: [
+        { productId: "P1", name: "Laptop", quantity: 1, price: "100" },
+      ],
+    } as any;
+
+    orderRepo.save.mockRejectedValue(new Error("DB down"));
+
+    await expect(service.create(dto)).rejects.toBeInstanceOf(
+      InternalServerErrorException
+    );
+
+    expect(queryRunner.rollbackTransaction as jest.Mock).toHaveBeenCalled();
+    expect(queryRunner.release as jest.Mock).toHaveBeenCalled();
+  });
 });

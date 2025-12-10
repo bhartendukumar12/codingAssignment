@@ -5,39 +5,50 @@ import {
   OneToMany,
   CreateDateColumn,
   UpdateDateColumn,
-} from 'typeorm';
-import { OrderStatus } from '../enums/order-status.enum';
-import { OrderItemEntity } from './order-item.entity';
+} from "typeorm";
+import { AutoMap } from "@automapper/classes";
+import { OrderStatus } from "../enums/order-status.enum";
+import { OrderItemEntity } from "./order-item.entity";
 
-@Entity({ name: 'orders' })
+@Entity({ name: "orders" })
 export class OrderEntity {
+    @AutoMap()
   @PrimaryGeneratedColumn()
   id: string;
 
+  @AutoMap()
   @Column()
   customerName: string;
 
+  @AutoMap()
   @Column()
   customerEmail: string;
 
-  @Column({ type: 'enum', enum: OrderStatus, default: OrderStatus.PENDING })
+  @AutoMap()
+  @Column({ type: "enum", enum: OrderStatus, default: OrderStatus.PENDING })
   status: OrderStatus;
 
-  @Column({ type: 'numeric', precision: 18, scale: 2, default: 0 })
-  total: string; 
+  @AutoMap()
+  @Column({ type: "numeric", precision: 18, scale: 2, default: 0 })
+  total: string;
 
+  @AutoMap(() => OrderItemEntity)
   @OneToMany(() => OrderItemEntity, (item) => item.order)
   items: OrderItemEntity[];
 
- @Column()
+  @AutoMap()
+  @Column()
   createdBy: string;
 
-@Column({ nullable: true })
+  @AutoMap()
+  @Column({ nullable: true })
   updatedBy: string;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  // @AutoMap()
+  @CreateDateColumn({ type: "timestamptz" })
   createdAt: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  // @AutoMap()
+  @UpdateDateColumn({ type: "timestamptz" })
   updatedAt: Date;
 }

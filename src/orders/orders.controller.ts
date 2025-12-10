@@ -11,7 +11,9 @@ import {
 } from "@nestjs/common";
 import { OrdersService } from "./orders.service";
 import { CreateOrderDto } from "./dto/create-order.dto";
+import { OrderDto } from "./dto/response-order.dto";
 import { OrderStatus } from "./enums/order-status.enum";
+import { OrderEntity } from "./entities/order.entity";
 import {
   ApiTags,
   ApiOperation,
@@ -27,7 +29,12 @@ import { UpdateStatusDto } from "./dto/update-status.dto";
 export class OrdersController {
   constructor(private readonly svc: OrdersService) {}
 
-  // Create order
+  /**
+   * Create a new order.
+   *
+   * @param {CreateOrderDto} order - order details.
+   * @returns {Promise<CreateOrderDto>} The saved order details.
+   */
   @Post()
   @ApiOperation({ summary: "Create an order" })
   @ApiResponse({ status: 201, description: "Order created" })
@@ -36,7 +43,12 @@ export class OrdersController {
     return await this.svc.create(dto);
   }
 
-  // Get order by id
+  /**
+   * Get order by Id.
+   *
+   * @param {string} id - order id to be fetched.
+   * @returns {Promise<OrderDto>} The order details.
+   */
   @Get(":id")
   @ApiOperation({ summary: "Get order by id" })
   @ApiParam({ name: "id", required: true })
@@ -45,7 +57,12 @@ export class OrdersController {
     return await this.svc.findById(id);
   }
 
-  // List orders
+  /**
+   * List all order
+   *
+   * @param {string} status - order status.
+   * @returns {Promise<OrderDto[]>} The order details.
+   */
   @Get()
   @ApiOperation({ summary: "List orders (optional status filter, paginated)" })
   @ApiQuery({ name: "status", required: false, enum: OrderStatus })
@@ -63,7 +80,13 @@ export class OrdersController {
     return this.svc.findAll(parsedStatus, page, limit);
   }
 
-  // Update order status
+  /**
+   * Update order status
+   *
+   * @param {string} id - order id.
+   * @param {string} status - order status.
+   * @returns {Promise<OrderDto>} The updated order details.
+   */
   @Patch(":id/status")
   @ApiOperation({ summary: "Update order status" })
   @ApiParam({ name: "id" })
@@ -75,7 +98,12 @@ export class OrdersController {
     return await this.svc.updateStatus(id, body.status, body.updatedBy);
   }
 
-  // Cancel order
+  /**
+   * Cancel order
+   *
+   * @param {string} id - order id.
+   * @returns {Promise<OrderEntity>} The canceled order details.
+   */
   @Post(":id/cancel")
   @ApiOperation({ summary: "Cancel order (only when PENDING)" })
   @ApiParam({ name: "id" })
