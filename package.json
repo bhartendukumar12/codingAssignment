@@ -6,7 +6,10 @@
         "start": "node dist/main.ts",
         "start:dev": "ts-node-dev --respawn --transpile-only src/main.ts",
         "build": "tsc -p tsconfig.json",
-        "lint": "eslint . --ext .ts"
+        "lint": "eslint . --ext .ts",
+        "test": "jest",
+        "test:watch": "jest --watch",
+        "test:cov": "jest --coverage"
     },
     "dependencies": {
         "@nestjs/common": "^10.0.0",
@@ -26,7 +29,33 @@
         "uuid": "^9.0.0"
     },
     "devDependencies": {
+        "@nestjs/testing": "^10.4.20",
+        "@types/jest": "^30.0.0",
+        "jest": "^30.2.0",
+        "ts-jest": "^29.4.6",
         "ts-node-dev": "^2.0.0",
         "typescript": "^5.0.0"
+    },
+    "jest": {
+        "moduleFileExtensions": [
+            "js",
+            "json",
+            "ts"
+        ],
+        "rootDir": "src",
+        "testRegex": ".*\\.spec\\.ts$",
+        "transform": {
+            "^.+\\.(t|j)s$": "ts-jest"
+        },
+        "collectCoverageFrom": [
+            "**/controllers/**/*.ts",
+            "**/services/**/*.service.ts",
+            "**/profiles/**/*.ts",
+            "**/shared/**/*datetime.ts",
+            "**/shared/**/*utils.ts",
+            "**/shared/**/*jsonComparator.ts"
+        ],
+        "coverageDirectory": "../coverage",
+        "testEnvironment": "node"
     }
 }

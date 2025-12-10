@@ -5,12 +5,11 @@ import {
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, Repository } from "typeorm";
-import { v4 as uuidv4 } from "uuid";
 import { OrderEntity } from "./entities/order.entity";
 import { OrderItemEntity } from "./entities/order-item.entity";
 import { OrderStatus } from "./enums/order-status.enum";
 import { CreateOrderDto } from "./dto/create-order.dto";
-import { computeTotal, nowIso } from "../common/utils";
+import { computeTotal } from "../common/utils";
 import { Interval } from "@nestjs/schedule";
 import { LoggerHelper } from "../common/logger";
 
